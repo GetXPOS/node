@@ -1,0 +1,37 @@
+{
+  "name": "getxpos",
+  "version": "0.1.0",
+  "description": "Node.js SDK for XPOS — instant public URLs via SSH tunnels",
+  "type": "module",
+  "bin": {
+    "xpos": "bin/xpos.js"
+  },
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "tunnel",
+    "xpos",
+    "ssh",
+    "ngrok",
+    "localhost",
+    "public-url",
+    "development"
+  ],
+  "homepage": "https://xpos.dev",
+  "license": "MIT",
+  "author": "XPOS <info@xpos.dev> (https://xpos.dev)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/getxpos/node"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "LICENSE",
+    "README.md"
+  ]
+}
