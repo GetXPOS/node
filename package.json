@@ -1,6 +1,6 @@
 {
   "name": "getxpos",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Node.js SDK for XPOS — instant public URLs via SSH tunnels",
   "type": "module",
   "bin": {
