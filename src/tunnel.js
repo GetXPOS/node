@@ -68,7 +68,6 @@ export class XposTunnel {
       "-o", "StrictHostKeyChecking=no",
       "-o", "UserKnownHostsFile=/dev/null",
       "-o", "LogLevel=ERROR",
-      "-o", "BatchMode=yes",
       "-o", "ConnectTimeout=10",
       "-R", remoteForward,
       `${user}@${this.server}`,
