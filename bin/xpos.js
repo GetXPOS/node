@@ -217,6 +217,13 @@ async function main() {
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 
+  // Windows: readline interface needed for SIGINT to fire reliably
+  if (process.platform === "win32") {
+    const rl = await import("node:readline");
+    const iface = rl.createInterface({ input: process.stdin });
+    iface.on("SIGINT", () => process.emit("SIGINT"));
+  }
+
   try {
     await tunnel.start();
     displayUrl(tunnel.url, tunnel.expiresAt);
