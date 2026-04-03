@@ -42,7 +42,7 @@ export class XposTunnel {
     if (!options.port) throw new Error("port is required");
 
     this.port = options.port;
-    this.host = options.host || "localhost";
+    this.host = options.host || "127.0.0.1";
     this.token = resolveToken(options.token);
     this.subdomain = options.subdomain || null;
     this.domain = options.domain || null;

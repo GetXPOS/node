@@ -66,7 +66,7 @@ function showHelp() {
 
   ${c.bold("OPTIONS")}
     --port <port>        Local port to expose ${c.red("(required)")}
-    --host <host>        Local host ${c.gray("(default: localhost)")}
+    --host <host>        Local host ${c.gray("(default: 127.0.0.1)")}
     --token <token>      Auth token ${c.gray("(or set XPOS_TOKEN env)")}
     --subdomain <name>   Reserved subdomain ${c.gray("(Pro+, requires token)")}
     --domain <domain>    Custom domain ${c.gray("(Business, requires token)")}
