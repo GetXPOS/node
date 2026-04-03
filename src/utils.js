@@ -117,6 +117,6 @@ export function shouldFilterLine(line) {
   if (/^Expires:/i.test(trimmed)) return true;
   if (/^Press Ctrl\+C/i.test(trimmed)) return true;
   if (/^Tunnel closed/i.test(trimmed)) return true;
-  if (/^\d+\.\d+\.\d+\.\d+:\d+$/.test(trimmed)) return true;
+  if (/^\S+:\d+$/.test(trimmed)) return true;
   return false;
 }

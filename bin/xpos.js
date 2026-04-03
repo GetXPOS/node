@@ -160,6 +160,12 @@ async function main() {
     process.exit(1);
   }
 
+  if (args.token === true) {
+    console.error(`\n  ${c.red("Error:")} --token requires a value\n`);
+    console.error(`  ${c.gray("Usage:")} xpos --port 3000 --token tk_xxx\n`);
+    process.exit(1);
+  }
+
   if (args.subdomain && args.domain) {
     console.error(`\n  ${c.red("Error:")} --subdomain and --domain are mutually exclusive\n`);
     process.exit(1);

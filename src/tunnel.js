@@ -48,6 +48,16 @@ export class XposTunnel {
     this.domain = options.domain || null;
     this.mode = options.mode || "http";
     this.server = options.server || DEFAULT_SERVER;
+
+    if (this.subdomain && this.domain) {
+      throw new Error("subdomain and domain are mutually exclusive");
+    }
+    if (this.mode !== "http" && this.mode !== "tcp") {
+      throw new Error('mode must be "http" or "tcp"');
+    }
+    if ((this.subdomain || this.domain) && !this.token) {
+      throw new Error(`${this.domain ? "domain" : "subdomain"} requires a token`);
+    }
   }
 
   /**
@@ -84,6 +94,10 @@ export class XposTunnel {
         reject(new Error("Tunnel is already connected"));
         return;
       }
+
+      this.url = null;
+      this.expiresAt = null;
+      this._buffer = "";
 
       const args = this._buildArgs();
       let settled = false;

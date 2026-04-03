@@ -93,7 +93,7 @@ tunnel.close();
 
 // Port-based TCP tunnel
 const tcp = await xpos.connect({ port: 5432, token: 'tk_xxx', mode: 'tcp' });
-console.log(tcp.url);           // 1.2.3.4:54321
+console.log(tcp.url);           // myapp.xpos.to:54321
 tcp.close();
 ```
 
