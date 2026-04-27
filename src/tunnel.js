@@ -166,6 +166,10 @@ export class XposTunnel {
 
       proc.on("close", (code) => {
         clearTimeout(timeout);
+        if (this._forceKill) {
+          clearTimeout(this._forceKill);
+          this._forceKill = null;
+        }
         this.connected = false;
         this._process = null;
         if (!settled) {
@@ -178,7 +182,9 @@ export class XposTunnel {
   }
 
   /**
-   * Close the tunnel gracefully.
+   * Close the tunnel gracefully. The existing "close" listener registered in
+   * start() handles the single emission; we only send SIGTERM and arm a
+   * SIGKILL fallback here.
    */
   close() {
     if (!this._process) return;
@@ -188,19 +194,13 @@ export class XposTunnel {
 
     proc.kill("SIGTERM");
 
-    const forceKill = setTimeout(() => {
+    this._forceKill = setTimeout(() => {
       try {
         proc.kill("SIGKILL");
       } catch {
         // already dead
       }
     }, KILL_TIMEOUT);
-
-    proc.on("close", () => {
-      clearTimeout(forceKill);
-      this._process = null;
-      this._emit("close", { code: null });
-    });
   }
 
   /**
