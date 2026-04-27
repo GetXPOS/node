@@ -55,6 +55,9 @@ export class XposTunnel {
     if (this.mode !== "http" && this.mode !== "tcp") {
       throw new Error('mode must be "http" or "tcp"');
     }
+    if (this.mode === "tcp" && !this.token) {
+      throw new Error("tcp mode requires a token");
+    }
     if ((this.subdomain || this.domain) && !this.token) {
       throw new Error(`${this.domain ? "domain" : "subdomain"} requires a token`);
     }
