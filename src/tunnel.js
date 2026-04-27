@@ -39,9 +39,12 @@ export class XposTunnel {
    * @param {string} [options.server] - SSH server hostname
    */
   constructor(options = {}) {
-    if (!options.port) throw new Error("port is required");
+    const port = Number(options.port);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new Error("port is required (1-65535)");
+    }
 
-    this.port = options.port;
+    this.port = port;
     this.host = options.host || "127.0.0.1";
     this.token = resolveToken(options.token);
     this.subdomain = options.subdomain || null;
