@@ -191,6 +191,16 @@ export class XposTunnel {
 
       proc.on("error", (err) => {
         clearTimeout(timeout);
+        // Reclaim the per-process known_hosts temp dir on spawn-time
+        // errors (e.g. ssh missing). Node guarantees neither 'close'
+        // nor 'exit' for some error paths, so we cannot rely on the
+        // 'close' handler to clean up.
+        if (this._cleanupKnownHosts) {
+          const cleanup = this._cleanupKnownHosts;
+          this._cleanupKnownHosts = null;
+          this._knownHostsPath = null;
+          cleanup().catch(() => {});
+        }
         if (!settled) {
           settled = true;
           if (err.code === "ENOENT") {
