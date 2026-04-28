@@ -144,6 +144,26 @@ await tunnel.start();
 - **Node.js >= 18**
 - **SSH client** in PATH (`ssh` command — comes pre-installed on macOS, Linux, and Windows 10+)
 
+## Security
+
+The auth token is passed as the SSH username (`<token>@go.xpos.dev`), so it
+briefly appears in the local `ssh` process's argv. On a shared or audited
+host other local users may be able to read it via `ps`,
+`/proc/<pid>/cmdline`, or system audit logs.
+
+To minimize exposure:
+
+- **Provide the token via the `XPOS_TOKEN` environment variable** rather
+  than hard-coding it in source. This keeps it out of source control and
+  shell history (the SDK reads `XPOS_TOKEN` automatically when `token` is
+  not set).
+- **Rotate tokens regularly** and revoke any token you suspect was
+  exposed — manage tokens at [xpos.dev/dashboard/tokens](https://xpos.dev/dashboard/tokens).
+- **Avoid running on shared multi-user hosts** where untrusted local
+  users can inspect process state.
+
+A protocol change to remove argv exposure is on the roadmap.
+
 ## Troubleshooting
 
 **"SSH not found"** — Install OpenSSH. On Windows: `Settings > Apps > Optional Features > OpenSSH Client`.
