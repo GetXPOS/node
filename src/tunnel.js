@@ -8,8 +8,10 @@ import {
   parseExpiry,
   parseError,
 } from "./utils.js";
+import { resolveHostKeys } from "./hostkeys.js";
 
-const DEFAULT_SERVER = "go.xpos.dev";
+export const DEFAULT_SERVER = "go.xpos.dev";
+const DEFAULT_SSH_PORT = 443;
 const CONNECT_TIMEOUT = 15_000;
 const KILL_TIMEOUT = 3_000;
 
@@ -68,6 +70,14 @@ export class XposTunnel {
 
   /**
    * Build SSH command arguments.
+   *
+   * When connecting to the official xpos.dev fleet (server === DEFAULT_SERVER),
+   * the SDK pins the SSH host key it fetched from
+   * https://xpos.dev/.well-known/ssh-host-keys via a per-process
+   * known_hosts file referenced by `this._knownHostsPath`. For custom
+   * servers `_knownHostsPath` stays null and the legacy accept-new
+   * behaviour is used. The well-known URL is hard-coded to xpos.dev and
+   * only valid for that fleet.
    * @returns {string[]}
    */
   _buildArgs() {
@@ -79,10 +89,19 @@ export class XposTunnel {
       domain: this.domain,
     });
 
+    const hostKeyOpts = this._knownHostsPath
+      ? [
+          "-o", "StrictHostKeyChecking=yes",
+          "-o", `UserKnownHostsFile=${this._knownHostsPath}`,
+        ]
+      : [
+          "-o", "StrictHostKeyChecking=accept-new",
+          "-o", "UserKnownHostsFile=~/.ssh/xpos_known_hosts",
+        ];
+
     return [
       "-p", "443",
-      "-o", "StrictHostKeyChecking=accept-new",
-      "-o", "UserKnownHostsFile=~/.ssh/xpos_known_hosts",
+      ...hostKeyOpts,
       "-o", "LogLevel=ERROR",
       "-o", "ConnectTimeout=10",
       "-R", remoteForward,
@@ -94,17 +113,29 @@ export class XposTunnel {
    * Spawn SSH process and connect the tunnel.
    * @returns {Promise<string>} Resolves with the tunnel URL
    */
-  start() {
+  async start() {
+    if (this.connected) {
+      throw new Error("Tunnel is already connected");
+    }
+
+    this.url = null;
+    this.expiresAt = null;
+    this._buffer = "";
+
+    // Resolve the SSH host key before spawning ssh. Fail closed: if we cannot
+    // produce a pinned known_hosts file (network down AND no fresh disk
+    // cache), refuse to connect rather than silently fall back to TOFU.
+    // Custom servers skip pinning entirely (returns { path: null }).
+    const { path: knownHostsPath, cleanup: cleanupKnownHosts } =
+      await resolveHostKeys({
+        server: this.server,
+        port: DEFAULT_SSH_PORT,
+        defaultServer: DEFAULT_SERVER,
+      });
+    this._knownHostsPath = knownHostsPath;
+    this._cleanupKnownHosts = cleanupKnownHosts;
+
     return new Promise((resolve, reject) => {
-      if (this.connected) {
-        reject(new Error("Tunnel is already connected"));
-        return;
-      }
-
-      this.url = null;
-      this.expiresAt = null;
-      this._buffer = "";
-
       const args = this._buildArgs();
       let settled = false;
 
@@ -178,6 +209,12 @@ export class XposTunnel {
         }
         this.connected = false;
         this._process = null;
+        if (this._cleanupKnownHosts) {
+          const cleanup = this._cleanupKnownHosts;
+          this._cleanupKnownHosts = null;
+          this._knownHostsPath = null;
+          cleanup().catch(() => {}); // best-effort
+        }
         if (!settled) {
           settled = true;
           reject(new Error(`SSH exited with code ${code}`));
