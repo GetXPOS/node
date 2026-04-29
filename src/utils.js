@@ -33,6 +33,36 @@ export function buildRemoteForward({ port, host = "127.0.0.1", subdomain, domain
 }
 
 /**
+ * Build the bind/target pair for an ssh_config `RemoteForward` directive.
+ * ssh_config takes the bind side and target side as two separate arguments,
+ * not the colon-joined form `-R` uses.
+ * @param {{ port: number, host?: string, subdomain?: string, domain?: string }} opts
+ * @returns {{ bind: string, target: string }}
+ */
+export function buildRemoteForwardConfig({ port, host = "127.0.0.1", subdomain, domain }) {
+  const target = `${host}:${port}`;
+  if (domain) return { bind: `${domain}:80`, target };
+  if (subdomain) return { bind: `${subdomain}:80`, target };
+  return { bind: "0", target };
+}
+
+/**
+ * Quote a value for use as the right-hand side of an ssh_config directive.
+ * OpenSSH accepts forward slashes on Windows, so we normalize backslashes
+ * before quoting to sidestep backslash-escaping. Only wraps in double quotes
+ * if needed (whitespace, embedded `"` or `\`).
+ * @param {string} value
+ * @returns {string}
+ */
+export function quoteSSHConfigPath(value) {
+  const normalized = value.replace(/\\/g, "/");
+  const needsQuote = /[\s"\\]/.test(normalized);
+  if (!needsQuote) return normalized;
+  const escaped = normalized.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return `"${escaped}"`;
+}
+
+/**
  * Parse HTTPS URL from SSH server output. Falls back to HTTP.
  * @param {string} buffer
  * @returns {string|null}

@@ -1,12 +1,16 @@
 import { spawn } from "node:child_process";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   resolveToken,
   buildSshUser,
-  buildRemoteForward,
+  buildRemoteForwardConfig,
   parseUrl,
   parsePortUrl,
   parseExpiry,
   parseError,
+  quoteSSHConfigPath,
 } from "./utils.js";
 import { resolveHostKeys } from "./hostkeys.js";
 
@@ -39,11 +43,17 @@ export class XposTunnel {
    * @param {string} [options.domain] - Custom domain (Business)
    * @param {string} [options.mode="http"] - "http" or "tcp"
    * @param {string} [options.server] - SSH server hostname
+   * @param {number} [options.sshPort=443] - SSH server port (1-65535)
    */
   constructor(options = {}) {
     const port = Number(options.port);
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
       throw new Error("port is required (1-65535)");
+    }
+
+    const sshPort = options.sshPort === undefined ? DEFAULT_SSH_PORT : Number(options.sshPort);
+    if (!Number.isInteger(sshPort) || sshPort < 1 || sshPort > 65535) {
+      throw new Error("sshPort must be an integer in 1-65535");
     }
 
     this.port = port;
@@ -53,6 +63,7 @@ export class XposTunnel {
     this.domain = options.domain || null;
     this.mode = options.mode || "http";
     this.server = options.server || DEFAULT_SERVER;
+    this.sshPort = sshPort;
 
     if (this.subdomain && this.domain) {
       throw new Error("subdomain and domain are mutually exclusive");
@@ -69,44 +80,47 @@ export class XposTunnel {
   }
 
   /**
-   * Build SSH command arguments.
+   * Build the ssh_config body for a single Host alias. The token (carried in
+   * the `User` directive) lives in this file rather than the command line so
+   * `ps`/`/proc/<pid>/cmdline` can't surface it.
    *
-   * When connecting to the official xpos.dev fleet (server === DEFAULT_SERVER),
+   * When connecting to the official xpos.dev fleet (server === DEFAULT_SERVER)
    * the SDK pins the SSH host key it fetched from
-   * https://xpos.dev/.well-known/ssh-host-keys via a per-process
-   * known_hosts file referenced by `this._knownHostsPath`. For custom
-   * servers `_knownHostsPath` stays null and the legacy accept-new
-   * behaviour is used. The well-known URL is hard-coded to xpos.dev and
-   * only valid for that fleet.
-   * @returns {string[]}
+   * https://xpos.dev/.well-known/ssh-host-keys via a per-process known_hosts
+   * file referenced by `this._knownHostsPath`. For custom servers the
+   * known_hosts file is empty/missing and accept-new TOFU is used.
+   *
+   * `HostKeyAlias` MUST exactly match the marker the host-keys writer uses
+   * (`[host]:port`) — a bare `<host>` would not match the pinned line and
+   * would cause a verification failure.
+   *
+   * @returns {string} ssh_config body
    */
-  _buildArgs() {
+  _buildSshConfig() {
     const user = buildSshUser(this.token, this.mode);
-    const remoteForward = buildRemoteForward({
+    const { bind, target } = buildRemoteForwardConfig({
       port: this.port,
       host: this.host,
       subdomain: this.subdomain,
       domain: this.domain,
     });
-
-    const hostKeyOpts = this._knownHostsPath
-      ? [
-          "-o", "StrictHostKeyChecking=yes",
-          "-o", `UserKnownHostsFile=${this._knownHostsPath}`,
-        ]
-      : [
-          "-o", "StrictHostKeyChecking=accept-new",
-          "-o", "UserKnownHostsFile=~/.ssh/xpos_known_hosts",
-        ];
+    const hostKeyAlias = `[${this.server}]:${this.sshPort}`;
+    const knownHostsLine = this._knownHostsPath
+      ? `    StrictHostKeyChecking yes\n    UserKnownHostsFile ${quoteSSHConfigPath(this._knownHostsPath)}\n`
+      : `    StrictHostKeyChecking accept-new\n    UserKnownHostsFile ${quoteSSHConfigPath("~/.ssh/xpos_known_hosts")}\n`;
 
     return [
-      "-p", "443",
-      ...hostKeyOpts,
-      "-o", "LogLevel=ERROR",
-      "-o", "ConnectTimeout=10",
-      "-R", remoteForward,
-      `${user}@${this.server}`,
-    ];
+      "Host xpos",
+      `    HostName ${this.server}`,
+      `    HostKeyAlias ${hostKeyAlias}`,
+      `    User ${user}`,
+      `    Port ${this.sshPort}`,
+      knownHostsLine.trimEnd(),
+      "    LogLevel ERROR",
+      "    ConnectTimeout 10",
+      `    RemoteForward ${bind} ${target}`,
+      "",
+    ].join("\n");
   }
 
   /**
@@ -129,14 +143,31 @@ export class XposTunnel {
     const { path: knownHostsPath, cleanup: cleanupKnownHosts } =
       await resolveHostKeys({
         server: this.server,
-        port: DEFAULT_SSH_PORT,
+        port: this.sshPort,
         defaultServer: DEFAULT_SERVER,
       });
     this._knownHostsPath = knownHostsPath;
     this._cleanupKnownHosts = cleanupKnownHosts;
 
+    // Materialize a per-process ssh_config in a private temp dir. The
+    // 0700 dir + 0600 file combination ensures other UIDs can neither
+    // list nor read the file even if a later `mkdtempSync` user creates
+    // a wider-permissioned sibling.
+    const cfgDir = mkdtempSync(join(tmpdir(), "xpos-ssh-"));
+    const cfgPath = join(cfgDir, "config");
+    writeFileSync(cfgPath, this._buildSshConfig(), { mode: 0o600 });
+    this._sshConfigPath = cfgPath;
+    this._sshConfigDir = cfgDir;
+    const cleanupSshConfig = () => {
+      try {
+        rmSync(cfgDir, { recursive: true, force: true });
+      } catch {
+        // best-effort
+      }
+    };
+
     return new Promise((resolve, reject) => {
-      const args = this._buildArgs();
+      const args = ["-F", cfgPath, "xpos"];
       let settled = false;
 
       const proc = spawn("ssh", args, {
@@ -201,6 +232,9 @@ export class XposTunnel {
           this._knownHostsPath = null;
           cleanup().catch(() => {});
         }
+        cleanupSshConfig();
+        this._sshConfigPath = null;
+        this._sshConfigDir = null;
         if (!settled) {
           settled = true;
           if (err.code === "ENOENT") {
@@ -225,6 +259,9 @@ export class XposTunnel {
           this._knownHostsPath = null;
           cleanup().catch(() => {}); // best-effort
         }
+        cleanupSshConfig();
+        this._sshConfigPath = null;
+        this._sshConfigDir = null;
         if (!settled) {
           settled = true;
           reject(new Error(`SSH exited with code ${code}`));

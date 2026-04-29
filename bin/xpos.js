@@ -72,6 +72,7 @@ function showHelp() {
     --domain <domain>    Custom domain ${c.gray("(Business, requires token)")}
     --mode <mode>        Tunnel mode: http or tcp ${c.gray("(default: http)")}
     --server <host>      SSH server ${c.gray("(default: go.xpos.dev)")}
+    --ssh-port <port>    SSH server port ${c.gray("(default: 443)")}
     -h, --help           Show this help
     -v, --version        Show version
 
@@ -185,6 +186,15 @@ async function main() {
     process.exit(1);
   }
 
+  let sshPort;
+  if (args["ssh-port"] !== undefined) {
+    sshPort = parseInt(args["ssh-port"], 10);
+    if (isNaN(sshPort) || sshPort < 1 || sshPort > 65535) {
+      console.error(`\n  ${c.red("Error:")} --ssh-port must be an integer in 1-65535\n`);
+      process.exit(1);
+    }
+  }
+
   // Display banner
   displayBanner({ token: args.token, subdomain: args.subdomain, domain: args.domain, mode });
 
@@ -197,6 +207,7 @@ async function main() {
     domain: args.domain,
     mode,
     server: args.server,
+    sshPort,
   });
 
   // Pass-through unfiltered output

@@ -77,6 +77,7 @@ xpos --port 5432 --token tk_xxx --mode tcp
 | `--domain <domain>` | Custom domain (requires token) | — |
 | `--mode <mode>` | `http` or `tcp` | `http` |
 | `--server <host>` | SSH server hostname | `go.xpos.dev` |
+| `--ssh-port <port>` | SSH server port (1-65535) | `443` |
 | `-h, --help` | Show help | — |
 | `-v, --version` | Show version | — |
 
