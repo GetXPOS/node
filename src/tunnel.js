@@ -11,6 +11,7 @@ import {
   parseExpiry,
   parseError,
   quoteSSHConfigPath,
+  validateSshConfigValue,
 } from "./utils.js";
 import { resolveHostKeys } from "./hostkeys.js";
 
@@ -77,6 +78,15 @@ export class XposTunnel {
     if ((this.subdomain || this.domain) && !this.token) {
       throw new Error(`${this.domain ? "domain" : "subdomain"} requires a token`);
     }
+
+    // Reject control / whitespace in any value rendered into ssh_config —
+    // ssh_config is line-based, so a stray newline would smuggle a new
+    // directive (e.g. ProxyCommand) into the file.
+    validateSshConfigValue("server", this.server);
+    validateSshConfigValue("host", this.host);
+    if (this.subdomain) validateSshConfigValue("subdomain", this.subdomain);
+    if (this.domain) validateSshConfigValue("domain", this.domain);
+    if (this.token) validateSshConfigValue("token", this.token);
   }
 
   /**
