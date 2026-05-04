@@ -57,6 +57,31 @@ export function buildRemoteForwardConfig({ port, host = "127.0.0.1", subdomain, 
  * @param {string} value
  * @throws {Error} when value contains a disallowed character
  */
+const DNS_LABEL_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
+
+/**
+ * Validate a DNS-shaped identifier (subdomain or custom domain). Each
+ * dot-separated label must match `^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$` —
+ * the same per-label rule the server enforces. Catches obvious typos
+ * (`foo..bar`, leading/trailing hyphen, underscore, labels over 63 chars)
+ * on the client so the SSH session fails fast with a clear error rather
+ * than a cryptic banner after handshake.
+ *
+ * @param {string} name - field name for error messages
+ * @param {string} value
+ * @throws {Error} when value is not a valid DNS name
+ */
+export function validateDnsName(name, value) {
+  const labels = value.toLowerCase().split(".");
+  for (const label of labels) {
+    if (!DNS_LABEL_RE.test(label)) {
+      throw new Error(
+        `${name} is not a valid DNS name (lowercase a-z, 0-9, hyphens; no leading/trailing hyphen; max 63 chars per label)`,
+      );
+    }
+  }
+}
+
 export function validateSshConfigValue(name, value) {
   for (let i = 0; i < value.length; i++) {
     const code = value.charCodeAt(i);

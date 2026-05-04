@@ -11,6 +11,7 @@ import {
   parseExpiry,
   parseError,
   quoteSSHConfigPath,
+  validateDnsName,
   validateSshConfigValue,
 } from "./utils.js";
 import { resolveHostKeys } from "./hostkeys.js";
@@ -84,8 +85,14 @@ export class XposTunnel {
     // directive (e.g. ProxyCommand) into the file.
     validateSshConfigValue("server", this.server);
     validateSshConfigValue("host", this.host);
-    if (this.subdomain) validateSshConfigValue("subdomain", this.subdomain);
-    if (this.domain) validateSshConfigValue("domain", this.domain);
+    if (this.subdomain) {
+      validateSshConfigValue("subdomain", this.subdomain);
+      validateDnsName("subdomain", this.subdomain);
+    }
+    if (this.domain) {
+      validateSshConfigValue("domain", this.domain);
+      validateDnsName("domain", this.domain);
+    }
     if (this.token) validateSshConfigValue("token", this.token);
   }
 
