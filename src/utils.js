@@ -57,6 +57,15 @@ export function buildRemoteForwardConfig({ port, host = "127.0.0.1", subdomain, 
  * @param {string} value
  * @throws {Error} when value contains a disallowed character
  */
+export function validateSshConfigValue(name, value) {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code <= 0x20 || code === 0x7f) {
+      throw new Error(`${name} contains disallowed control or whitespace character at index ${i}`);
+    }
+  }
+}
+
 const DNS_LABEL_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
 
 /**
@@ -78,15 +87,6 @@ export function validateDnsName(name, value) {
       throw new Error(
         `${name} is not a valid DNS name (lowercase a-z, 0-9, hyphens; no leading/trailing hyphen; max 63 chars per label)`,
       );
-    }
-  }
-}
-
-export function validateSshConfigValue(name, value) {
-  for (let i = 0; i < value.length; i++) {
-    const code = value.charCodeAt(i);
-    if (code <= 0x20 || code === 0x7f) {
-      throw new Error(`${name} contains disallowed control or whitespace character at index ${i}`);
     }
   }
 }
