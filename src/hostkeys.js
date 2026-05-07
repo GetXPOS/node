@@ -102,8 +102,19 @@ async function writeKnownHostsFile(doc, host, port) {
  * The returned `cleanup` callback removes the temp directory; callers
  * should invoke it whether the tunnel succeeds or fails.
  */
+// Track whether the custom-server warning has fired this process so we
+// don't spam stderr on every connect.
+let warnedCustomServer = false;
+
 export async function resolveHostKeys({ server, port, defaultServer }) {
   if (server !== defaultServer) {
+    if (!warnedCustomServer) {
+      console.error(
+        `warning: xpos host-key pinning disabled for custom server '${server}'. ` +
+          'Verify the fingerprint manually on first connect.'
+      );
+      warnedCustomServer = true;
+    }
     return { path: null, cleanup: async () => {} };
   }
   const doc = await loadOrFetchHostKeys();
