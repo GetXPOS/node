@@ -71,7 +71,7 @@ xpos --port 5432 --token tk_xxx --mode tcp
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--port <port>` | Local port to expose | **(required)** |
-| `--host <host>` | Local host to forward | `localhost` |
+| `--host <host>` | Local host to forward | `127.0.0.1` |
 | `--token <token>` | Auth token (or `XPOS_TOKEN` env) | — |
 | `--subdomain <name>` | Reserved subdomain (requires token) | — |
 | `--domain <domain>` | Custom domain (requires token) | — |
@@ -133,7 +133,7 @@ await tunnel.start();
 | Option | Type | Description |
 |--------|------|-------------|
 | `port` | `number` | Local port to expose **(required)** |
-| `host` | `string` | Local host (default: `"localhost"`) |
+| `host` | `string` | Local host (default: `"127.0.0.1"`) |
 | `token` | `string` | Auth token (or reads `XPOS_TOKEN` env) |
 | `subdomain` | `string` | Reserved subdomain |
 | `domain` | `string` | Custom domain |

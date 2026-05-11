@@ -39,7 +39,7 @@ export class XposTunnel {
   /**
    * @param {object} options
    * @param {number} options.port - Local port to expose
-   * @param {string} [options.host="localhost"] - Local host to forward
+   * @param {string} [options.host="127.0.0.1"] - Local host to forward
    * @param {string} [options.token] - XPOS token (or reads XPOS_TOKEN env)
    * @param {string} [options.subdomain] - Reserved subdomain (Pro+)
    * @param {string} [options.domain] - Custom domain (Business)
