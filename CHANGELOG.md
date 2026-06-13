@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Re-derive and verify each SSH host key's SHA256 fingerprint, and reject
+  whitespace/control chars in the key fields, before writing `known_hosts` —
+  fail-closed against a tampered/buggy well-known response (matches the Go SDK).
+
+### Fixed
+- Clean up the per-process `known_hosts` temp dir if ssh_config materialization
+  (`mkdtempSync`/`writeFileSync`) throws before the `ssh` process spawns.
+
+### Changed
+- README Security section rewritten to match the shipped design (the token is
+  written to a `0600` ssh_config `User` directive, not placed on the `ssh` argv).
+
 ## [0.1.8] - 2026-05-13
 
 ### Added

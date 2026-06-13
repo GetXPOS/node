@@ -1,6 +1,7 @@
 import { mkdir, readFile, stat, writeFile, rm, mkdtemp } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { createHash } from "node:crypto";
 
 // Public well-known URL serving the xpos.dev fleet's SSH host key for SDK
 // pinning. Hard-coded — only valid for the official fleet.
@@ -78,11 +79,45 @@ async function loadOrFetchHostKeys() {
   throw new Error(`fetch ssh host keys: ${fetchErr?.message || fetchErr}`);
 }
 
+// verifyHostKeys fails closed before any key is pinned (A14/A15), mirroring the
+// Go SDK's verifyHostKeys. For each key: require type / public_key /
+// fingerprint_sha256; reject whitespace/control chars in either field
+// (known_hosts is line-oriented, so a newline could smuggle an extra
+// `* <attacker-key>` wildcard pin line); and re-derive the OpenSSH SHA256
+// fingerprint from the public-key blob, throwing on any disagreement with the
+// advertised value. Authenticity ultimately comes from TLS to the well-known
+// host — this is a defense-in-depth integrity cross-check, not a MITM bypass.
+function verifyHostKeys(doc) {
+  for (const k of doc.keys) {
+    const type = k.type;
+    const pub = k.public_key;
+    const advertised = k.fingerprint_sha256;
+    if (!type || !pub || !advertised) {
+      throw new Error("ssh host keys: missing type/public_key/fingerprint_sha256 from server");
+    }
+    if (/\s/.test(type) || /\s/.test(pub)) {
+      throw new Error("ssh host keys: malformed type or public_key shape from server");
+    }
+    const derived =
+      "SHA256:" +
+      createHash("sha256")
+        .update(Buffer.from(pub, "base64"))
+        .digest("base64")
+        .replace(/=+$/, "");
+    if (derived !== advertised) {
+      throw new Error(
+        `ssh host key fingerprint mismatch: server-advertised ${advertised} != re-derived ${derived}`,
+      );
+    }
+  }
+}
+
 // writeKnownHostsFile creates a per-process known_hosts file in a fresh
 // temp directory (mode 0700, file 0600) pinning every key in doc to
 // host:port. Caller is responsible for removing the directory when the
 // tunnel exits.
 async function writeKnownHostsFile(doc, host, port) {
+  verifyHostKeys(doc); // fail closed before materialising trust (A14/A15)
   const dir = await mkdtemp(join(tmpdir(), "xpos-"));
   const path = join(dir, "known_hosts");
   const lines = doc.keys

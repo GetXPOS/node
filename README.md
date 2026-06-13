@@ -147,10 +147,11 @@ await tunnel.start();
 
 ## Security
 
-The auth token is passed as the SSH username (`<token>@go.xpos.dev`), so it
-briefly appears in the local `ssh` process's argv. On a shared or audited
-host other local users may be able to read it via `ps`,
-`/proc/<pid>/cmdline`, or system audit logs.
+The auth token is written to a per-process SSH config file (mode `0600`, inside
+a private `0700` temp directory) as the `User` directive, and the SDK spawns
+`ssh -F <config> xpos` — so the token is **not** placed on the `ssh` command
+line and does **not** appear in `ps`, `/proc/<pid>/cmdline`, or shell history.
+The config file is removed when the tunnel exits.
 
 To minimize exposure:
 
@@ -163,7 +164,10 @@ To minimize exposure:
 - **Avoid running on shared multi-user hosts** where untrusted local
   users can inspect process state.
 
-A protocol change to remove argv exposure is on the roadmap.
+Residual exposure: the token lives in that `0600` temp config file for the
+tunnel's lifetime, and — when supplied via `XPOS_TOKEN` — in this process's
+environment (`/proc/<pid>/environ`, readable only by the same UID or root) —
+both far tighter than the `ps`-readable argv of older designs.
 
 ## Troubleshooting
 

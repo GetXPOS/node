@@ -170,9 +170,24 @@ export class XposTunnel {
     // 0700 dir + 0600 file combination ensures other UIDs can neither
     // list nor read the file even if a later `mkdtempSync` user creates
     // a wider-permissioned sibling.
-    const cfgDir = mkdtempSync(join(tmpdir(), "xpos-ssh-"));
-    const cfgPath = join(cfgDir, "config");
-    writeFileSync(cfgPath, this._buildSshConfig(), { mode: 0o600 });
+    let cfgDir;
+    let cfgPath;
+    try {
+      cfgDir = mkdtempSync(join(tmpdir(), "xpos-ssh-"));
+      cfgPath = join(cfgDir, "config");
+      writeFileSync(cfgPath, this._buildSshConfig(), { mode: 0o600 });
+    } catch (err) {
+      // A85: this block runs BEFORE the spawn Promise exists, so a throw here
+      // (tmpdir unwritable, ENOSPC, EMFILE) would escape start() with the
+      // known_hosts dir resolveHostKeys created above never cleaned up. Release
+      // it before rethrowing so the per-process dir doesn't leak for the host's
+      // lifetime.
+      if (this._cleanupKnownHosts) {
+        this._cleanupKnownHosts();
+        this._cleanupKnownHosts = null;
+      }
+      throw err;
+    }
     this._sshConfigPath = cfgPath;
     this._sshConfigDir = cfgDir;
     const cleanupSshConfig = () => {
