@@ -58,6 +58,12 @@ export function buildRemoteForwardConfig({ port, host = "127.0.0.1", subdomain, 
  * @throws {Error} when value contains a disallowed character
  */
 export function validateSshConfigValue(name, value) {
+  // N5: a bare value flag (e.g. `--host` with no argument) coerces to boolean
+  // `true`, whose `.length` is undefined — the loop below would then be skipped
+  // and the literal "true" smuggled into ssh_config. Reject non-strings up front.
+  if (typeof value !== "string") {
+    throw new Error(`${name} must be a string (did you pass a flag without a value?)`);
+  }
   for (let i = 0; i < value.length; i++) {
     const code = value.charCodeAt(i);
     if (code <= 0x20 || code === 0x7f) {

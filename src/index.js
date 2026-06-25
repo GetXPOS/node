@@ -1,6 +1,6 @@
 import { XposTunnel, connect } from "./tunnel.js";
 
-export const version = "0.1.8";
+export const version = "0.1.9";
 
 export { XposTunnel, connect };
 

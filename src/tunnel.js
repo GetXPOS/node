@@ -20,6 +20,12 @@ export const DEFAULT_SERVER = "go.xpos.dev";
 const DEFAULT_SSH_PORT = 443;
 const CONNECT_TIMEOUT = 15_000;
 const KILL_TIMEOUT = 3_000;
+// M1: cap the parse buffer so a post-URL output burst can't grow it unbounded.
+const MAX_PARSE_BUFFER = 64 * 1024;
+// M1: bounded window (after the URL is seen) to capture a later-chunk `Expires:`
+// line before resolving the connect. Small enough to be unnoticeable; resolves
+// SUCCESS on timeout when no `Expires:` arrives (paid / no-expiry tiers).
+const EXPIRY_WINDOW_MS = 500;
 
 export class XposTunnel {
   /** @type {string|null} HTTPS URL or ip:port for port tunnels */
@@ -201,6 +207,11 @@ export class XposTunnel {
     return new Promise((resolve, reject) => {
       const args = ["-F", cfgPath, "xpos"];
       let settled = false;
+      let urlFound = false;
+      // C14: carry the incomplete trailing line across chunks so an `Error:`
+      // split over a read-chunk boundary is still detected.
+      let pendingLine = "";
+      let expiryTimer = null;
 
       const proc = spawn("ssh", args, {
         stdio: ["ignore", "pipe", "pipe"],
@@ -208,44 +219,102 @@ export class XposTunnel {
 
       this._process = proc;
 
-      const timeout = setTimeout(() => {
-        if (!settled) {
-          settled = true;
-          proc.kill("SIGTERM");
-          reject(new Error("Connection timed out after 15s"));
+      const clearExpiryTimer = () => {
+        if (expiryTimer) {
+          clearTimeout(expiryTimer);
+          expiryTimer = null;
         }
+      };
+
+      // N1: SIGTERM-now + an armed SIGKILL fallback so a wedged ssh that ignores
+      // SIGTERM can't orphan the child + leak the 0700 temp dir (cleanup lives in
+      // the 'close' handler). The 'close' handler clears _forceKill.
+      const armForceKill = () => {
+        proc.kill("SIGTERM");
+        this._forceKill = setTimeout(() => {
+          try {
+            proc.kill("SIGKILL");
+          } catch {
+            // already dead
+          }
+        }, KILL_TIMEOUT);
+      };
+
+      const finishConnect = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        clearExpiryTimer();
+        this.connected = true;
+        this._emit("connect", { url: this.url, expiresAt: this.expiresAt });
+        resolve(this.url);
+      };
+
+      const failConnect = (message) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        clearExpiryTimer();
+        armForceKill();
+        reject(new Error(message));
+      };
+
+      const timeout = setTimeout(() => {
+        failConnect("Connection timed out after 15s");
       }, CONNECT_TIMEOUT);
 
       const onData = (chunk) => {
         const text = chunk.toString();
-        this._buffer += text;
-        this._emit("output", text);
+        this._emit("output", text); // always forward output to listeners
+        if (settled) return; // connected or failed — stop retaining/parsing (bounds memory)
 
-        // Check for errors
-        for (const line of text.split(/\r?\n/)) {
+        // C14: cross-chunk error detection. Prepend the carried partial line,
+        // scan complete lines, keep the trailing partial for the next chunk.
+        const combined = pendingLine + text;
+        const lines = combined.split(/\r?\n/);
+        pendingLine = lines.pop() ?? "";
+        if (pendingLine.length > MAX_PARSE_BUFFER) {
+          pendingLine = pendingLine.slice(pendingLine.length - MAX_PARSE_BUFFER);
+        }
+        for (const line of lines) {
           const err = parseError(line);
-          if (err && !settled) {
-            settled = true;
-            clearTimeout(timeout);
-            proc.kill("SIGTERM");
-            reject(new Error(err));
+          if (err) {
+            failConnect(err);
             return;
           }
         }
 
-        // Try to parse URL
-        const url = this.mode === "tcp"
-          ? parsePortUrl(this._buffer)
-          : parseUrl(this._buffer);
+        // Accumulate for URL/expiry parsing, bounded so a post-URL burst (during
+        // the expiry window) can't grow the buffer without limit.
+        this._buffer += text;
+        if (this._buffer.length > MAX_PARSE_BUFFER) {
+          this._buffer = this._buffer.slice(this._buffer.length - MAX_PARSE_BUFFER);
+        }
 
-        if (url && !settled) {
-          settled = true;
-          clearTimeout(timeout);
+        if (!urlFound) {
+          const url = this.mode === "tcp" ? parsePortUrl(this._buffer) : parseUrl(this._buffer);
+          if (!url) return;
+          urlFound = true;
           this.url = url;
           this.expiresAt = parseExpiry(this._buffer);
-          this.connected = true;
-          this._emit("connect", { url: this.url, expiresAt: this.expiresAt });
-          resolve(url);
+          if (this.expiresAt) {
+            finishConnect();
+          } else {
+            // M1: bounded pre-resolve window — the server emits `Expires:` in a
+            // SEPARATE write that may land in a later chunk, so don't resolve
+            // immediately. Wait briefly to capture it, but resolve SUCCESS on
+            // timeout (paid / no-expiry tiers never send `Expires:`).
+            expiryTimer = setTimeout(finishConnect, EXPIRY_WINDOW_MS);
+          }
+          return;
+        }
+
+        // urlFound && !settled → inside the bounded expiry window: re-parse
+        // expiry only (never re-run parseUrl).
+        const exp = parseExpiry(this._buffer);
+        if (exp) {
+          this.expiresAt = exp;
+          finishConnect();
         }
       };
 
@@ -254,6 +323,10 @@ export class XposTunnel {
 
       proc.on("error", (err) => {
         clearTimeout(timeout);
+        clearExpiryTimer();
+        // C15: clear the process handle on a spawn error (e.g. ENOENT) so a
+        // later close() doesn't kill a dead process / arm a useless SIGKILL.
+        this._process = null;
         // Reclaim the per-process known_hosts temp dir on spawn-time
         // errors (e.g. ssh missing). Node guarantees neither 'close'
         // nor 'exit' for some error paths, so we cannot rely on the
@@ -279,6 +352,7 @@ export class XposTunnel {
 
       proc.on("close", (code) => {
         clearTimeout(timeout);
+        clearExpiryTimer();
         if (this._forceKill) {
           clearTimeout(this._forceKill);
           this._forceKill = null;
@@ -295,8 +369,16 @@ export class XposTunnel {
         this._sshConfigPath = null;
         this._sshConfigDir = null;
         if (!settled) {
-          settled = true;
-          reject(new Error(`SSH exited with code ${code}`));
+          if (urlFound) {
+            // URL already seen — the process closing during the bounded expiry
+            // window still counts as a successful connect (matches the prior
+            // immediate-resolve behavior); the 'close' emit below signals the
+            // disconnect.
+            finishConnect();
+          } else {
+            settled = true;
+            reject(new Error(`SSH exited with code ${code}`));
+          }
         }
         this._emit("close", { code });
       });

@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat, writeFile, rm, mkdtemp } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, writeFile, rm, mkdtemp } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createHash } from "node:crypto";
@@ -17,8 +17,39 @@ const HOST_KEYS_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 // predictable on flaky networks.
 const HOST_KEYS_FETCH_TIMEOUT_MS = 5_000;
 
+// N4: hard cap on the well-known response body (matches the Python SDK's 1<<16)
+// so a compromised/buggy endpoint can't stream an unbounded body into memory.
+const MAX_HOST_KEYS_BYTES = 1 << 16;
+
 const CACHE_DIR = join(homedir(), ".xpos");
 const CACHE_FILE = join(CACHE_DIR, "host-keys.json");
+
+// readCapped reads up to maxBytes of resp's body as UTF-8, aborting (and
+// throwing) if the body exceeds the cap. Falls back to resp.text() when the
+// body isn't a streamable ReadableStream (e.g. a test mock).
+async function readCapped(resp, maxBytes, ctrl) {
+  const reader = resp.body?.getReader?.();
+  if (!reader) {
+    const text = await resp.text();
+    if (Buffer.byteLength(text) > maxBytes) {
+      throw new Error("ssh-host-keys: response too large");
+    }
+    return text;
+  }
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > maxBytes) {
+      ctrl.abort();
+      throw new Error("ssh-host-keys: response too large");
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
 
 async function fetchHostKeys() {
   const ctrl = new AbortController();
@@ -28,7 +59,8 @@ async function fetchHostKeys() {
     if (!resp.ok) {
       throw new Error(`ssh-host-keys: HTTP ${resp.status}`);
     }
-    const doc = await resp.json();
+    const text = await readCapped(resp, MAX_HOST_KEYS_BYTES, ctrl);
+    const doc = JSON.parse(text);
     if (!doc || !Array.isArray(doc.keys) || doc.keys.length === 0) {
       throw new Error("ssh-host-keys: empty key list");
     }
@@ -49,8 +81,16 @@ async function loadCache() {
   if (Date.now() - info.mtimeMs > HOST_KEYS_CACHE_MAX_AGE_MS) {
     return null; // stale — treat as missing
   }
-  const raw = await readFile(CACHE_FILE, "utf8");
-  const doc = JSON.parse(raw);
+  // N3: a truncated/corrupt cache must be treated as MISSING (so loadOrFetch
+  // surfaces the real fetch-failure cause), not throw a cryptic SyntaxError that
+  // aborts the connection from the fallback path.
+  let doc;
+  try {
+    const raw = await readFile(CACHE_FILE, "utf8");
+    doc = JSON.parse(raw);
+  } catch {
+    return null;
+  }
   if (!doc || !Array.isArray(doc.keys) || doc.keys.length === 0) {
     return null;
   }
@@ -59,7 +99,17 @@ async function loadCache() {
 
 async function saveCache(doc) {
   await mkdir(CACHE_DIR, { recursive: true, mode: 0o700 });
-  await writeFile(CACHE_FILE, JSON.stringify(doc), { mode: 0o600 });
+  // N2: write-then-rename in the SAME directory so a concurrent reader never
+  // sees a half-written file and a crash mid-write can't corrupt the cache.
+  // Same dir (not os.tmpdir) keeps rename atomic — no cross-device copy.
+  const tmp = join(CACHE_DIR, `host-keys.json.${process.pid}.${Date.now()}.tmp`);
+  await writeFile(tmp, JSON.stringify(doc), { mode: 0o600 });
+  try {
+    await rename(tmp, CACHE_FILE);
+  } catch (err) {
+    await rm(tmp, { force: true }).catch(() => {});
+    throw err;
+  }
 }
 
 // loadOrFetchHostKeys prefers a fresh network fetch (best authority) but
