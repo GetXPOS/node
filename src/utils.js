@@ -22,17 +22,6 @@ export function buildSshUser(token, mode) {
 }
 
 /**
- * Build the -R remote forward string for SSH.
- * @param {{ port: number, host?: string, subdomain?: string, domain?: string }} opts
- * @returns {string}
- */
-export function buildRemoteForward({ port, host = "127.0.0.1", subdomain, domain }) {
-  if (domain) return `${domain}:80:${host}:${port}`;
-  if (subdomain) return `${subdomain}:80:${host}:${port}`;
-  return `0:${host}:${port}`;
-}
-
-/**
  * Build the bind/target pair for an ssh_config `RemoteForward` directive.
  * ssh_config takes the bind side and target side as two separate arguments,
  * not the colon-joined form `-R` uses.

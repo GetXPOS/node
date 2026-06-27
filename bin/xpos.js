@@ -167,6 +167,16 @@ async function main() {
     process.exit(1);
   }
 
+  // Every value-taking flag passed bare (no value → parsed as `true`) must be
+  // rejected with a clear message rather than throwing an internal error when
+  // the boolean is later used as a string.
+  for (const flag of ["subdomain", "domain", "host"]) {
+    if (args[flag] === true) {
+      console.error(`\n  ${c.red("Error:")} --${flag} requires a value\n`);
+      process.exit(1);
+    }
+  }
+
   if (args.subdomain && args.domain) {
     console.error(`\n  ${c.red("Error:")} --subdomain and --domain are mutually exclusive\n`);
     process.exit(1);

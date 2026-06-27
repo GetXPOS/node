@@ -392,6 +392,9 @@ export class XposTunnel {
    */
   close() {
     if (!this._process) return;
+    // Already terminating (force-kill armed here or by start's armForceKill) —
+    // re-arming would overwrite and leak the first SIGKILL timer.
+    if (this._forceKill) return;
 
     const proc = this._process;
     this.connected = false;
