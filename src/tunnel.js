@@ -375,6 +375,10 @@ export class XposTunnel {
             // immediate-resolve behavior); the 'close' emit below signals the
             // disconnect.
             finishConnect();
+            // F27: finishConnect() sets connected=true; the process has already
+            // exited (_process=null above), so force it back to false — leaving
+            // it true would misreport a dead tunnel as live.
+            this.connected = false;
           } else {
             settled = true;
             reject(new Error(`SSH exited with code ${code}`));
@@ -412,7 +416,10 @@ export class XposTunnel {
 
   /**
    * Add event listener.
-   * @param {"connect"|"error"|"close"|"output"} event
+   * F28: only "connect", "close", and "output" are ever emitted — connect
+   * failures reject the start() promise rather than emitting an "error" event
+   * (which the JSDoc previously advertised but nothing raised).
+   * @param {"connect"|"close"|"output"} event
    * @param {Function} fn
    */
   on(event, fn) {

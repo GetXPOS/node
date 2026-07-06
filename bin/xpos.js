@@ -170,7 +170,7 @@ async function main() {
   // Every value-taking flag passed bare (no value → parsed as `true`) must be
   // rejected with a clear message rather than throwing an internal error when
   // the boolean is later used as a string.
-  for (const flag of ["subdomain", "domain", "host"]) {
+  for (const flag of ["subdomain", "domain", "host", "server"]) {
     if (args[flag] === true) {
       console.error(`\n  ${c.red("Error:")} --${flag} requires a value\n`);
       process.exit(1);
@@ -266,4 +266,11 @@ async function main() {
   });
 }
 
-main();
+// F26: XposTunnel construction runs before the start() try/catch, and its
+// validation (underscore subdomain, whitespace token, bare --server) throws.
+// Without this .catch those surface as raw unhandled-rejection traces — print
+// a clean message + exit 1 instead.
+main().catch((err) => {
+  console.error(`\n  ${c.red("Error:")} ${err.message}\n`);
+  process.exit(1);
+});
