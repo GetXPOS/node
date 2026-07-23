@@ -153,6 +153,10 @@ export function parseError(line) {
 export function formatExpiry(rfc3339) {
   try {
     const expiry = new Date(rfc3339);
+    // new Date("garbage") yields an Invalid Date (getTime() → NaN) WITHOUT
+    // throwing, so the catch below never fires and the output would read
+    // "Expires in NaNm (NaN:NaN UTC)". Guard explicitly.
+    if (Number.isNaN(expiry.getTime())) return `Expires: ${rfc3339}`;
     const now = new Date();
     const diffMs = expiry.getTime() - now.getTime();
     if (diffMs <= 0) return "Expired";
